@@ -52,3 +52,11 @@ htmlcov/
 
 # Streamlit
 .streamlit/
+
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+
+# Backend
+backend/__pycache__/
