@@ -22,6 +22,8 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null)
   const [history, setHistory] = useState<QueryHistoryItem[]>([])
   const [missingDatasets, setMissingDatasets] = useState<string[] | null>(null)
+  const [missingYears, setMissingYears] = useState<(number | string)[]>(['*'])
+  const [missingStates, setMissingStates] = useState<string[]>(['*'])
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null)
   const [initStatus, setInitStatus] = useState<'idle' | 'loading' | 'done'>('idle')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -70,6 +72,8 @@ export default function HomePage() {
       } catch (e: unknown) {
         if (e instanceof NeedsInitError) {
           setMissingDatasets(e.datasets)
+          setMissingYears(e.years)
+          setMissingStates(e.states)
           setPendingQuestion(question)
         } else {
           const msg = e instanceof Error ? e.message : 'Erro desconhecido'
@@ -85,7 +89,7 @@ export default function HomePage() {
   const handleDownloadDatasets = useCallback(async () => {
     if (!missingDatasets) return
     setInitStatus('loading')
-    await api.initDb(missingDatasets)
+    await api.initDb(missingDatasets, missingYears, missingStates)
     pollRef.current = setInterval(async () => {
       const s = await api.initDbStatus()
       if (s.status === 'done') {
@@ -123,10 +127,20 @@ export default function HomePage() {
                 <p className="text-sm font-medium text-amber-800 mb-1">
                   Dados necessários não encontrados
                 </p>
-                <p className="text-xs text-amber-700 mb-3">
-                  Esta pergunta requer:{' '}
-                  {missingDatasets.map(d => DATASET_INFO[d]?.label || d).join(', ')}
+                <p className="text-xs text-amber-700 mb-1">
+                  Dataset: <strong>{missingDatasets.map(d => DATASET_INFO[d]?.label || d).join(', ')}</strong>
                 </p>
+                {missingYears[0] !== '*' && (
+                  <p className="text-xs text-amber-700 mb-1">
+                    Ano(s): <strong>{missingYears.join(', ')}</strong>
+                  </p>
+                )}
+                {missingStates[0] !== '*' && (
+                  <p className="text-xs text-amber-700 mb-1">
+                    Estado(s): <strong>{missingStates.join(', ')}</strong>
+                  </p>
+                )}
+                <p className="text-xs text-amber-600 mb-3">Será baixado apenas o necessário.</p>
                 <button
                   onClick={handleDownloadDatasets}
                   disabled={initStatus === 'loading'}

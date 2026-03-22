@@ -4,9 +4,13 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 export class NeedsInitError extends Error {
   datasets: string[]
-  constructor(datasets: string[]) {
+  years: (number | string)[]
+  states: string[]
+  constructor(datasets: string[], years: (number | string)[], states: string[]) {
     super('needs_init')
     this.datasets = datasets
+    this.years = years
+    this.states = states
   }
 }
 
@@ -15,7 +19,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (!res.ok) {
     const json = await res.json().catch(() => null)
     if (json?.detail?.needs_init) {
-      throw new NeedsInitError(json.detail.missing_datasets)
+      throw new NeedsInitError(json.detail.missing_datasets, json.detail.years ?? ['*'], json.detail.states ?? ['*'])
     }
     const text = JSON.stringify(json) || `HTTP ${res.status}`
     throw new Error(text)
@@ -37,11 +41,11 @@ export const api = {
   health: (): Promise<HealthResponse> =>
     request<HealthResponse>('/health'),
 
-  initDb: (datasets?: string[]): Promise<{ status: string; message: string }> =>
+  initDb: (datasets?: string[], years?: (number | string)[], states?: string[]): Promise<{ status: string; message: string }> =>
     request('/init-db', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ datasets: datasets ?? null }),
+      body: JSON.stringify({ datasets: datasets ?? null, years: years ?? null, states: states ?? null }),
     }),
 
   initDbStatus: (): Promise<{

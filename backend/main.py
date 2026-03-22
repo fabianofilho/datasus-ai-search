@@ -62,6 +62,24 @@ def detect_datasets_from_question(question: str) -> list:
     return needed or ["sim_do"]  # default para mortalidade se não detectar
 
 
+def detect_years_from_question(question: str) -> list:
+    """Extrai anos mencionados na pergunta (ex: 2019, 2020)."""
+    import re
+    years = re.findall(r'\b(19[89]\d|20[012]\d)\b', question)
+    return [int(y) for y in years] if years else ["*"]
+
+
+def detect_states_from_question(question: str) -> list:
+    """Extrai siglas de estados mencionados na pergunta."""
+    import re
+    STATES = {"AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS",
+               "MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC",
+               "SP","SE","TO"}
+    found = re.findall(r'\b([A-Z]{2})\b', question.upper())
+    matched = [s for s in found if s in STATES]
+    return matched if matched else ["*"]
+
+
 def get_existing_tables(db_path: str) -> list:
     """Retorna as tabelas que existem no banco de dados."""
     import duckdb
@@ -89,26 +107,29 @@ _init_state = {
 _init_lock = threading.Lock()
 
 
-def _run_init(datasets: List[str]):
+def _run_init(datasets: List[str], years=None, states=None):
     global _init_state
     import datasus_db
 
+    y = years or ["*"]
+    s = states or ["*"]
+
     with _init_lock:
-        _init_state.update({"status": "running", "completed": [], "error": ""})
+        _init_state.update({"status": "running", "completed": [], "error": "", "years": y, "states": s})
 
     try:
         for dataset in datasets:
             with _init_lock:
                 _init_state["current"] = dataset
-            logger.info(f"Importando {dataset}...")
+            logger.info(f"Importando {dataset} anos={y} estados={s}...")
             if dataset == "sim_do":
-                datasus_db.import_sim_do(db_file=DB_PATH)
+                datasus_db.import_sim_do(db_file=DB_PATH, years=y, states=s)
             elif dataset == "sih_rd":
-                datasus_db.import_sih_rd(db_file=DB_PATH)
+                datasus_db.import_sih_rd(db_file=DB_PATH, years=y, states=s)
             elif dataset == "sia_pa":
-                datasus_db.import_sia_pa(db_file=DB_PATH)
+                datasus_db.import_sia_pa(db_file=DB_PATH, years=y, states=s)
             elif dataset == "ibge_pop":
-                datasus_db.import_ibge_pop(db_file=DB_PATH)
+                datasus_db.import_ibge_pop(db_file=DB_PATH, years=y)
             elif dataset == "auxiliar":
                 datasus_db.import_auxiliar_tables(db_file=DB_PATH)
             with _init_lock:
@@ -132,6 +153,8 @@ class SearchRequest(BaseModel):
 
 class InitDBRequest(BaseModel):
     datasets: Optional[List[str]] = None
+    years: Optional[List] = None
+    states: Optional[List[str]] = None
 
 
 @app.get("/health")
@@ -157,6 +180,8 @@ async def search(req: SearchRequest):
 
         # Verificar se os datasets necessários estão disponíveis
         needed = detect_datasets_from_question(req.question)
+        years = detect_years_from_question(req.question)
+        states = detect_states_from_question(req.question)
         existing = get_existing_tables(DB_PATH)
         missing = [d for d in needed if d not in existing]
         if missing:
@@ -165,6 +190,8 @@ async def search(req: SearchRequest):
                 detail={
                     "needs_init": True,
                     "missing_datasets": missing,
+                    "years": years,
+                    "states": states,
                     "message": f"Dados necessários não encontrados: {', '.join(missing)}",
                 }
             )
@@ -225,10 +252,12 @@ async def init_database(req: InitDBRequest):
             return {"status": "running", "message": "Inicialização já em andamento"}
 
     datasets = req.datasets or ["sim_do", "sih_rd", "sia_pa", "ibge_pop"]
+    years = req.years or ["*"]
+    states = req.states or ["*"]
     from pathlib import Path
     Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 
-    t = threading.Thread(target=_run_init, args=(datasets,), daemon=True)
+    t = threading.Thread(target=_run_init, args=(datasets, years, states), daemon=True)
     t.start()
     return {"status": "started", "message": f"Inicialização iniciada para: {', '.join(datasets)}"}
 
