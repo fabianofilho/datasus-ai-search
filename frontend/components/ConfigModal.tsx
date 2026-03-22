@@ -3,13 +3,19 @@
 import { useState, useEffect } from 'react'
 import { X, Key, Globe, Cpu, Save } from 'lucide-react'
 import type { AppConfig } from '@/types'
-import { AVAILABLE_MODELS } from '@/types'
+import { MODELS_BY_PROVIDER, API_BASE_DEFAULTS, detectProvider } from '@/types'
 
 interface ConfigModalProps {
   isOpen: boolean
   onClose: () => void
   config: AppConfig
   onSave: (config: AppConfig) => void
+}
+
+const PROVIDER_LABELS = {
+  openai: 'OpenAI',
+  gemini: 'Google Gemini',
+  anthropic: 'Anthropic Claude',
 }
 
 export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigModalProps) {
@@ -21,9 +27,28 @@ export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigM
 
   if (!isOpen) return null
 
+  const provider = detectProvider(local.apiKey)
+  const models = MODELS_BY_PROVIDER[provider]
+
+  const handleApiKeyChange = (apiKey: string) => {
+    const newProvider = detectProvider(apiKey)
+    const newModels = MODELS_BY_PROVIDER[newProvider]
+    const defaultBase = API_BASE_DEFAULTS[newProvider]
+
+    // Auto-switch apiBase when provider changes (only if it was a known default or empty)
+    const knownBases = Object.values(API_BASE_DEFAULTS)
+    const shouldUpdateBase = knownBases.includes(local.apiBase) || local.apiBase === ''
+
+    setLocal({
+      ...local,
+      apiKey,
+      model: newModels[0].value,
+      apiBase: shouldUpdateBase ? defaultBase : local.apiBase,
+    })
+  }
+
   const handleSave = () => {
     onSave(local)
-    // Persist to localStorage
     localStorage.setItem('datasus_config', JSON.stringify(local))
     onClose()
   }
@@ -55,13 +80,15 @@ export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigM
             <input
               type="password"
               value={local.apiKey}
-              onChange={(e) => setLocal({ ...local, apiKey: e.target.value })}
-              placeholder="sk-..."
+              onChange={(e) => handleApiKeyChange(e.target.value)}
+              placeholder="sk-... / AIza... / sk-ant-..."
               className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sus-blue-600 focus:border-sus-blue-600 transition-all"
             />
-            <p className="text-xs text-slate-500 mt-1">
-              Chave da OpenAI ou compatível (Anthropic, etc.)
-            </p>
+            {local.apiKey && (
+              <p className="text-xs text-slate-500 mt-1">
+                Provedor detectado: <span className="font-medium text-sus-blue-600">{PROVIDER_LABELS[provider]}</span>
+              </p>
+            )}
           </div>
 
           {/* API Base URL */}
@@ -80,7 +107,7 @@ export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigM
               className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sus-blue-600 focus:border-sus-blue-600 transition-all"
             />
             <p className="text-xs text-slate-500 mt-1">
-              Para LLMs alternativos (Ollama, Azure OpenAI, etc.)
+              Preenchido automaticamente conforme o provedor detectado.
             </p>
           </div>
 
@@ -97,7 +124,7 @@ export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigM
               onChange={(e) => setLocal({ ...local, model: e.target.value })}
               className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sus-blue-600 focus:border-sus-blue-600 transition-all bg-white"
             >
-              {AVAILABLE_MODELS.map((m) => (
+              {models.map((m) => (
                 <option key={m.value} value={m.value}>
                   {m.label}
                 </option>
