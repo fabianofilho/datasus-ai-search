@@ -24,4 +24,11 @@ export const api = {
 
   health: (): Promise<HealthResponse> =>
     request<HealthResponse>('/health'),
+
+  initDb: (datasets?: string[]): Promise<{ status: string; message: string }> =>
+    request('/init-db', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ datasets: datasets ?? null }),
+    }),
 }
