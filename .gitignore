@@ -15,6 +15,7 @@ eggs/
 .eggs/
 lib/
 lib64/
+!frontend/lib/
 parts/
 sdist/
 var/
@@ -60,3 +61,4 @@ frontend/.env.local
 
 # Backend
 backend/__pycache__/
+.vercel
