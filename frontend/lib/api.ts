@@ -31,4 +31,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ datasets: datasets ?? null }),
     }),
+
+  initDbStatus: (): Promise<{
+    status: 'idle' | 'running' | 'done' | 'error'
+    current: string
+    completed: string[]
+    error: string
+  }> => request('/init-db/status'),
 }

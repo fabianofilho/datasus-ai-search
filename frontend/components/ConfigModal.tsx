@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X, Key, Globe, Cpu, Save, Database, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
 import type { AppConfig } from '@/types'
 import { MODELS_BY_PROVIDER, API_BASE_DEFAULTS, detectProvider } from '@/types'
@@ -19,18 +19,32 @@ const PROVIDER_LABELS = {
   anthropic: 'Anthropic Claude',
 }
 
+const DATASET_LABELS: Record<string, string> = {
+  sim_do: 'SIM — Mortalidade',
+  sih_rd: 'SIH — Internações',
+  sia_pa: 'SIA — Ambulatorial',
+  ibge_pop: 'IBGE — População',
+}
+
 type InitStatus = 'idle' | 'loading' | 'success' | 'error'
 
 export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigModalProps) {
   const [local, setLocal] = useState<AppConfig>(config)
   const [initStatus, setInitStatus] = useState<InitStatus>('idle')
   const [initMessage, setInitMessage] = useState('')
+  const [initProgress, setInitProgress] = useState<{ current: string; completed: string[] }>({ current: '', completed: [] })
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     setLocal(config)
     setInitStatus('idle')
     setInitMessage('')
+    setInitProgress({ current: '', completed: [] })
   }, [config, isOpen])
+
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [])
 
   if (!isOpen) return null
 
@@ -63,10 +77,25 @@ export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigM
   const handleInitDb = async () => {
     setInitStatus('loading')
     setInitMessage('')
+    setInitProgress({ current: '', completed: [] })
     try {
-      const res = await api.initDb()
-      setInitStatus('success')
-      setInitMessage(res.message)
+      await api.initDb()
+      // Poll status
+      pollRef.current = setInterval(async () => {
+        try {
+          const s = await api.initDbStatus()
+          setInitProgress({ current: s.current, completed: s.completed })
+          if (s.status === 'done') {
+            clearInterval(pollRef.current!)
+            setInitStatus('success')
+            setInitMessage('Banco de dados inicializado com sucesso!')
+          } else if (s.status === 'error') {
+            clearInterval(pollRef.current!)
+            setInitStatus('error')
+            setInitMessage(s.error || 'Erro ao inicializar')
+          }
+        } catch {}
+      }, 2000)
     } catch (e) {
       setInitStatus('error')
       setInitMessage(e instanceof Error ? e.message : 'Erro ao inicializar banco de dados')
@@ -164,6 +193,28 @@ export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigM
               Baixa e inicializa os dados de mortalidade, internações, ambulatorial e população. Pode demorar alguns minutos.
             </p>
 
+            {initStatus === 'loading' && (
+              <div className="mb-3 space-y-1">
+                {Object.entries(DATASET_LABELS).map(([key, label]) => {
+                  const done = initProgress.completed.includes(key)
+                  const active = initProgress.current === key
+                  return (
+                    <div key={key} className="flex items-center gap-2 text-xs">
+                      {done ? (
+                        <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                      ) : active ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-sus-blue-600 flex-shrink-0" />
+                      ) : (
+                        <div className="w-3.5 h-3.5 rounded-full border border-slate-300 flex-shrink-0" />
+                      )}
+                      <span className={done ? 'text-green-700' : active ? 'text-sus-blue-700 font-medium' : 'text-slate-400'}>
+                        {label}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
             {initStatus === 'success' && (
               <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2 mb-3">
                 <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
@@ -187,7 +238,7 @@ export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigM
               ) : (
                 <Database className="w-3.5 h-3.5" />
               )}
-              {initStatus === 'loading' ? 'Inicializando...' : 'Inicializar Banco de Dados'}
+              {initStatus === 'loading' ? 'Baixando dados...' : 'Inicializar Banco de Dados'}
             </button>
           </div>
         </div>
