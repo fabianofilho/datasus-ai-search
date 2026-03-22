@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Optional, Tuple
 from openai import OpenAI
-from .query_executor import QueryExecutor
+from query_executor import QueryExecutor
 
 logger = logging.getLogger(__name__)
 
