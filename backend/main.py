@@ -2,11 +2,12 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
+import shutil
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -115,6 +116,23 @@ async def init_database(req: InitDBRequest):
         with DataManager(DB_PATH) as dm:
             dm.initialize_database(req.datasets)
             return {"status": "ok", "message": "Banco de dados inicializado com sucesso"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/upload-db")
+async def upload_database(file: UploadFile = File(...)):
+    """Recebe um arquivo datasus.db e substitui o banco de dados atual."""
+    try:
+        import os
+        from pathlib import Path
+        Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = DB_PATH + ".tmp"
+        with open(tmp_path, "wb") as buf:
+            shutil.copyfileobj(file.file, buf)
+        os.replace(tmp_path, DB_PATH)
+        size_mb = Path(DB_PATH).stat().st_size / (1024 * 1024)
+        return {"status": "ok", "size_mb": round(size_mb, 1), "message": "Banco de dados atualizado com sucesso"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
