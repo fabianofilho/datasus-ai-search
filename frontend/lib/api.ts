@@ -2,11 +2,23 @@ import type { SearchRequest, SearchResponse, TablesResponse, HealthResponse } fr
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
+export class NeedsInitError extends Error {
+  datasets: string[]
+  constructor(datasets: string[]) {
+    super('needs_init')
+    this.datasets = datasets
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, options)
   if (!res.ok) {
-    const text = await res.text()
-    throw new Error(text || `HTTP ${res.status}`)
+    const json = await res.json().catch(() => null)
+    if (json?.detail?.needs_init) {
+      throw new NeedsInitError(json.detail.missing_datasets)
+    }
+    const text = JSON.stringify(json) || `HTTP ${res.status}`
+    throw new Error(text)
   }
   return res.json() as Promise<T>
 }

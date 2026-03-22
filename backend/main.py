@@ -36,6 +36,49 @@ app.add_middleware(
 
 DB_PATH = os.getenv("DB_PATH", "data/datasus.db")
 
+# Mapeamento de datasets para tabelas e palavras-chave
+DATASET_TABLES = {
+    "sim_do": ["sim_do"],
+    "sih_rd": ["sih_rd"],
+    "sia_pa": ["sia_pa"],
+    "ibge_pop": ["ibge_pop"],
+}
+
+DATASET_KEYWORDS = {
+    "sim_do": ["mort", "óbito", "obito", "morte", "falec", "sim", "causa", "bito"],
+    "sih_rd": ["internaç", "internac", "hospital", "sih", "aih", "leito", "cirurgia", "alta"],
+    "sia_pa": ["ambulat", "consulta", "procedimento", "sia", "atenção básica", "atencao basica"],
+    "ibge_pop": ["populaç", "populac", "ibge", "habitant", "censo", "demográf", "demograf"],
+}
+
+
+def detect_datasets_from_question(question: str) -> list:
+    """Detecta quais datasets são necessários para responder a pergunta."""
+    q = question.lower()
+    needed = []
+    for dataset, keywords in DATASET_KEYWORDS.items():
+        if any(kw in q for kw in keywords):
+            needed.append(dataset)
+    return needed or ["sim_do"]  # default para mortalidade se não detectar
+
+
+def get_existing_tables(db_path: str) -> list:
+    """Retorna as tabelas que existem no banco de dados."""
+    import duckdb
+    from pathlib import Path
+    if not Path(db_path).exists():
+        return []
+    try:
+        conn = duckdb.connect(db_path, read_only=True)
+        tables = [r[0] for r in conn.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
+        ).fetchall()]
+        conn.close()
+        return tables
+    except Exception:
+        return []
+
+
 # Estado global da inicialização do banco
 _init_state = {
     "status": "idle",       # idle | running | done | error
@@ -111,6 +154,20 @@ async def search(req: SearchRequest):
                 api_base = "https://generativelanguage.googleapis.com/v1beta/openai/"
             elif api_key.startswith("sk-ant-"):
                 api_base = "https://api.anthropic.com/v1/"
+
+        # Verificar se os datasets necessários estão disponíveis
+        needed = detect_datasets_from_question(req.question)
+        existing = get_existing_tables(DB_PATH)
+        missing = [d for d in needed if d not in existing]
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "needs_init": True,
+                    "missing_datasets": missing,
+                    "message": f"Dados necessários não encontrados: {', '.join(missing)}",
+                }
+            )
 
         with AIEngine(
             api_key=api_key,
