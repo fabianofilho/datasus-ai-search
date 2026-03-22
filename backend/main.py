@@ -105,6 +105,13 @@ async def search(req: SearchRequest):
 
         api_base = req.api_base or os.getenv("LLM_API_BASE")
 
+        # Auto-detect provider from API key if base URL not provided
+        if not api_base:
+            if api_key.startswith("AIza"):
+                api_base = "https://generativelanguage.googleapis.com/v1beta/openai/"
+            elif api_key.startswith("sk-ant-"):
+                api_base = "https://api.anthropic.com/v1/"
+
         with AIEngine(
             api_key=api_key,
             api_base=api_base,
