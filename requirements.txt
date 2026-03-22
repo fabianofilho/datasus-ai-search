@@ -3,6 +3,11 @@ python-dotenv>=1.0.0
 duckdb>=1.0.0
 pandas>=2.0.0
 
+# API
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
 # DATASUS
 datasus-db>=0.1.3
 
