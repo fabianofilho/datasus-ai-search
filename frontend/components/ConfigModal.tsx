@@ -133,9 +133,22 @@ export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigM
               placeholder="sk-... / AIza... / sk-ant-..."
               className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sus-blue-600 focus:border-sus-blue-600 transition-all"
             />
-            {local.apiKey && (
+            {local.apiKey ? (
               <p className="text-xs text-slate-500 mt-1">
                 Provedor detectado: <span className="font-medium text-sus-blue-600">{PROVIDER_LABELS[provider]}</span>
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500 mt-1">
+                Estudante? Use gratuitamente com o{' '}
+                <a
+                  href="https://aistudio.google.com/api-keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sus-blue-600 font-medium hover:underline"
+                >
+                  Google AI Studio
+                </a>
+                {' '}(chave Gemini gratuita).
               </p>
             )}
           </div>
