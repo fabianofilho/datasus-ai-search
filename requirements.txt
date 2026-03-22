@@ -1,7 +1,8 @@
 # Core
 python-dotenv>=1.0.0
 duckdb
-pandas>=2.0.0
+pandas>=2.0.0,<3.0.0
+numpy<2.0.0
 
 # API
 fastapi>=0.104.0
