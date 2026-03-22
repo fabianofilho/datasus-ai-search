@@ -14,5 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Create data directory and empty DuckDB file so read_only mode works
+RUN mkdir -p /app/data && python3 -c "import duckdb; duckdb.connect('/app/data/datasus.db').close()"
+
 EXPOSE 8000
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
