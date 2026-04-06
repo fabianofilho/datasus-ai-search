@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { AlertCircle, X, Database, Loader2, CheckCircle } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { AlertCircle, X } from 'lucide-react'
 import Header from '@/components/Header'
 import HeroSection from '@/components/HeroSection'
 import SearchBar from '@/components/SearchBar'
@@ -9,9 +9,9 @@ import ResultCard from '@/components/ResultCard'
 import SQLViewer from '@/components/SQLViewer'
 import DataTable from '@/components/DataTable'
 import QueryHistory from '@/components/QueryHistory'
+import DownloadBanner from '@/components/DownloadBanner'
 import { api, NeedsInitError } from '@/lib/api'
 import type { SearchResponse, QueryHistoryItem, AppConfig } from '@/types'
-import { DATASET_INFO } from '@/types'
 
 const DEFAULT_CONFIG: AppConfig = { apiKey: '', apiBase: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' }
 
@@ -25,8 +25,6 @@ export default function HomePage() {
   const [missingYears, setMissingYears] = useState<(number | string)[]>(['*'])
   const [missingStates, setMissingStates] = useState<string[]>(['*'])
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null)
-  const [initStatus, setInitStatus] = useState<'idle' | 'loading' | 'done'>('idle')
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Load config from localStorage on mount
   useEffect(() => {
@@ -86,25 +84,13 @@ export default function HomePage() {
     [config]
   )
 
-  const handleDownloadDatasets = useCallback(async () => {
-    if (!missingDatasets) return
-    setInitStatus('loading')
-    await api.initDb(missingDatasets, missingYears, missingStates)
-    pollRef.current = setInterval(async () => {
-      const s = await api.initDbStatus()
-      if (s.status === 'done') {
-        clearInterval(pollRef.current!)
-        setInitStatus('done')
-        setMissingDatasets(null)
-        if (pendingQuestion) handleSearch(pendingQuestion)
-      } else if (s.status === 'error') {
-        clearInterval(pollRef.current!)
-        setInitStatus('idle')
-        setError(s.error)
-        setMissingDatasets(null)
-      }
-    }, 2000)
-  }, [missingDatasets, pendingQuestion])
+  const handleDownloadDone = useCallback(() => {
+    setMissingDatasets(null)
+  }, [])
+
+  const handleRetrySearch = useCallback(() => {
+    if (pendingQuestion) handleSearch(pendingQuestion)
+  }, [pendingQuestion, handleSearch])
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -120,47 +106,14 @@ export default function HomePage() {
 
         {/* Missing datasets banner */}
         {missingDatasets && (
-          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl animate-fade-in">
-            <div className="flex items-start gap-3">
-              <Database className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-amber-800 mb-1">
-                  Dados necessários não encontrados
-                </p>
-                <p className="text-xs text-amber-700 mb-1">
-                  Dataset: <strong>{missingDatasets.map(d => DATASET_INFO[d]?.label || d).join(', ')}</strong>
-                </p>
-                {missingYears[0] !== '*' && (
-                  <p className="text-xs text-amber-700 mb-1">
-                    Ano(s): <strong>{missingYears.join(', ')}</strong>
-                  </p>
-                )}
-                {missingStates[0] !== '*' && (
-                  <p className="text-xs text-amber-700 mb-1">
-                    Estado(s): <strong>{missingStates.join(', ')}</strong>
-                  </p>
-                )}
-                <p className="text-xs text-amber-600 mb-3">Será baixado apenas o necessário.</p>
-                <button
-                  onClick={handleDownloadDatasets}
-                  disabled={initStatus === 'loading'}
-                  className="flex items-center gap-2 px-3 py-1.5 text-xs bg-amber-700 text-white rounded-lg hover:bg-amber-800 transition-colors disabled:opacity-60"
-                >
-                  {initStatus === 'loading' ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : initStatus === 'done' ? (
-                    <CheckCircle className="w-3.5 h-3.5" />
-                  ) : (
-                    <Database className="w-3.5 h-3.5" />
-                  )}
-                  {initStatus === 'loading' ? 'Baixando dados...' : 'Baixar e pesquisar'}
-                </button>
-              </div>
-              <button onClick={() => setMissingDatasets(null)}>
-                <X className="w-4 h-4 text-amber-500 hover:text-amber-700" />
-              </button>
-            </div>
-          </div>
+          <DownloadBanner
+            datasets={missingDatasets}
+            years={missingYears}
+            detectedStates={missingStates}
+            onDone={handleDownloadDone}
+            onRetrySearch={handleRetrySearch}
+            onClose={() => setMissingDatasets(null)}
+          />
         )}
 
         {/* Error */}
