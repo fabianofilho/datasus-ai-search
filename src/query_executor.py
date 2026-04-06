@@ -3,9 +3,12 @@ Módulo para executar consultas SQL no banco de dados DuckDB.
 """
 
 import logging
+import re
 from typing import Any, Dict, List
 import duckdb
 import pandas as pd
+
+_SAFE_TABLE_NAME = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 logger = logging.getLogger(__name__)
 
@@ -36,19 +39,28 @@ class QueryExecutor:
             self.conn = duckdb.connect(self.db_path, read_only=True)
         return self.conn
 
+    BLOCKED_PATTERNS = [
+        "read_csv", "read_parquet", "read_json", "read_blob",
+        "read_text", "glob(", "httpfs", "copy ", "attach ",
+        "install ", "load ", "create ", "drop ", "alter ",
+        "insert ", "update ", "delete ", "pragma ", "export ",
+        "import ", "call ", "set ", "execute(",
+    ]
+
+    def _validate_safe(self, query: str) -> None:
+        normalized = query.strip().lower()
+        if not normalized.startswith("select") and not normalized.startswith("with"):
+            raise PermissionError("Apenas consultas SELECT sao permitidas.")
+        for pattern in self.BLOCKED_PATTERNS:
+            if pattern in normalized:
+                raise PermissionError(f"Operacao bloqueada: {pattern.strip()}")
+
     def execute(self, query: str) -> pd.DataFrame:
         """
         Executa uma consulta SQL e retorna os resultados como DataFrame.
-
-        Args:
-            query: Consulta SQL a executar.
-
-        Returns:
-            DataFrame com os resultados da consulta.
-
-        Raises:
-            Exception: Se a consulta for inválida ou ocorrer um erro.
+        Apenas SELECT/WITH sao permitidos. Funcoes de acesso a filesystem sao bloqueadas.
         """
+        self._validate_safe(query)
         conn = self.connect()
 
         try:
@@ -59,7 +71,6 @@ class QueryExecutor:
 
         except Exception as e:
             logger.error(f"Erro ao executar consulta: {e}")
-            logger.error(f"Query: {query}")
             raise
 
     def validate_query(self, query: str) -> bool:
@@ -97,6 +108,8 @@ class QueryExecutor:
         conn = self.connect()
 
         try:
+            if not _SAFE_TABLE_NAME.match(table_name):
+                raise ValueError(f"Nome de tabela invalido: {table_name}")
             columns = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
             schema = {col[1]: col[2] for col in columns}
             return schema
@@ -136,6 +149,9 @@ class QueryExecutor:
             DataFrame com dados de exemplo.
         """
         try:
+            if not _SAFE_TABLE_NAME.match(table_name):
+                raise ValueError(f"Nome de tabela invalido: {table_name}")
+            limit = min(int(limit), 100)
             query = f"SELECT * FROM {table_name} LIMIT {limit}"
             return self.execute(query)
 

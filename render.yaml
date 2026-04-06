@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: datasus-ai-search-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: "*"

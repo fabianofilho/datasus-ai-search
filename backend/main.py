@@ -2,13 +2,14 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
 import shutil
 import threading
+import secrets
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -26,13 +27,25 @@ app = FastAPI(
     version="1.0.0"
 )
 
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
+
+
+def require_admin(authorization: Optional[str] = Header(None)):
+    if not ADMIN_TOKEN:
+        raise HTTPException(status_code=503, detail="Admin token not configured")
+    if authorization != f"Bearer {ADMIN_TOKEN}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return True
 
 DB_PATH = os.getenv("DB_PATH", "data/datasus.db")
 
@@ -229,9 +242,11 @@ async def search(req: SearchRequest):
 
     except HTTPException:
         raise
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         logger.error(f"Erro na busca: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Erro interno ao processar a consulta.")
 
 
 @app.get("/tables")
@@ -248,7 +263,7 @@ async def list_tables():
 
 
 @app.post("/init-db")
-async def init_database(req: InitDBRequest):
+async def init_database(req: InitDBRequest, _=Depends(require_admin)):
     with _init_lock:
         if _init_state["status"] == "running":
             return {"status": "running", "message": "Inicialização já em andamento"}
@@ -272,7 +287,7 @@ async def init_db_status():
 
 
 @app.post("/upload-db")
-async def upload_database(file: UploadFile = File(...)):
+async def upload_database(file: UploadFile = File(...), _=Depends(require_admin)):
     """Recebe um arquivo datasus.db e substitui o banco de dados atual."""
     try:
         import os
