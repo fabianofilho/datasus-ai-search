@@ -263,7 +263,7 @@ async def list_tables():
 
 
 @app.post("/init-db")
-async def init_database(req: InitDBRequest, _=Depends(require_admin)):
+async def init_database(req: InitDBRequest):
     with _init_lock:
         if _init_state["status"] == "running":
             return {"status": "running", "message": "Inicialização já em andamento"}
