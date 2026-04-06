@@ -51,12 +51,18 @@ export const AVAILABLE_MODELS = [
   { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
 ]
 
-export type Provider = 'openai' | 'gemini' | 'anthropic'
+export type Provider = 'groq' | 'openai' | 'gemini' | 'anthropic'
 
 export const MODELS_BY_PROVIDER: Record<Provider, { value: string; label: string }[]> = {
+  groq: [
+    { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (recomendado)' },
+    { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (mais rapido)' },
+    { value: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B' },
+    { value: 'gemma2-9b-it', label: 'Gemma 2 9B' },
+  ],
   openai: [
     { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini (recomendado)' },
-    { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano (mais rápido)' },
+    { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano (mais rapido)' },
     { value: 'gpt-4o', label: 'GPT-4o' },
     { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
     { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
@@ -74,12 +80,14 @@ export const MODELS_BY_PROVIDER: Record<Provider, { value: string; label: string
 }
 
 export const API_BASE_DEFAULTS: Record<Provider, string> = {
+  groq: 'https://api.groq.com/openai/v1',
   openai: '',
   gemini: 'https://generativelanguage.googleapis.com/v1beta/openai/',
   anthropic: 'https://api.anthropic.com/v1/',
 }
 
 export function detectProvider(apiKey: string): Provider {
+  if (apiKey.startsWith('gsk_')) return 'groq'
   if (apiKey.startsWith('sk-ant-')) return 'anthropic'
   if (apiKey.startsWith('AIza')) return 'gemini'
   return 'openai'

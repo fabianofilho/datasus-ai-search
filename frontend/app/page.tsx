@@ -13,7 +13,7 @@ import { api, NeedsInitError } from '@/lib/api'
 import type { SearchResponse, QueryHistoryItem, AppConfig } from '@/types'
 import { DATASET_INFO } from '@/types'
 
-const DEFAULT_CONFIG: AppConfig = { apiKey: '', apiBase: '', model: 'gpt-4.1-mini' }
+const DEFAULT_CONFIG: AppConfig = { apiKey: '', apiBase: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' }
 
 export default function HomePage() {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG)

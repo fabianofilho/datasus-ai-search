@@ -14,6 +14,7 @@ interface ConfigModalProps {
 }
 
 const PROVIDER_LABELS = {
+  groq: 'Groq (open-source)',
   openai: 'OpenAI',
   gemini: 'Google Gemini',
   anthropic: 'Anthropic Claude',
@@ -130,7 +131,7 @@ export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigM
               type="password"
               value={local.apiKey}
               onChange={(e) => handleApiKeyChange(e.target.value)}
-              placeholder="sk-... / AIza... / sk-ant-..."
+              placeholder="gsk_... / sk-... / AIza... / sk-ant-..."
               className="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sus-blue-600 focus:border-sus-blue-600 transition-all"
             />
             {local.apiKey ? (
@@ -139,7 +140,16 @@ export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigM
               </p>
             ) : (
               <p className="text-xs text-slate-500 mt-1">
-                Estudante? Use gratuitamente com o{' '}
+                Gratis:{' '}
+                <a
+                  href="https://console.groq.com/keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sus-blue-600 font-medium hover:underline"
+                >
+                  Groq
+                </a>
+                {' '}(Llama 3.3, open-source) ou{' '}
                 <a
                   href="https://aistudio.google.com/api-keys"
                   target="_blank"
@@ -148,7 +158,7 @@ export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigM
                 >
                   Google AI Studio
                 </a>
-                {' '}(chave Gemini gratuita).
+                {' '}(Gemini).
               </p>
             )}
           </div>

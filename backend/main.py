@@ -148,7 +148,7 @@ class SearchRequest(BaseModel):
     question: str
     api_key: Optional[str] = None
     api_base: Optional[str] = None
-    model: str = "gpt-4.1-mini"
+    model: str = "llama-3.3-70b-versatile"
 
 
 class InitDBRequest(BaseModel):
@@ -173,7 +173,9 @@ async def search(req: SearchRequest):
 
         # Auto-detect provider from API key if base URL not provided
         if not api_base:
-            if api_key.startswith("AIza"):
+            if api_key.startswith("gsk_"):
+                api_base = "https://api.groq.com/openai/v1"
+            elif api_key.startswith("AIza"):
                 api_base = "https://generativelanguage.googleapis.com/v1beta/openai/"
             elif api_key.startswith("sk-ant-"):
                 api_base = "https://api.anthropic.com/v1/"

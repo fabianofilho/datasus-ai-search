@@ -57,7 +57,7 @@ class AIEngine:
         self,
         api_key: str,
         api_base: Optional[str] = None,
-        model: str = "gpt-4.1-mini",
+        model: str = "llama-3.3-70b-versatile",
         db_path: str = "data/datasus.db",
     ):
         """
