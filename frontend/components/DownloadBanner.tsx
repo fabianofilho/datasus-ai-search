@@ -68,7 +68,7 @@ export default function DownloadBanner({
       const filtered = selectedStates.filter(s => !states.includes(s))
       setSelectedStates(filtered.length ? filtered : ['*'])
     } else {
-      const merged = [...new Set([...selectedStates.filter(s => s !== '*'), ...states])]
+      const merged = Array.from(new Set([...selectedStates.filter(s => s !== '*'), ...states]))
       setSelectedStates(merged)
     }
   }
