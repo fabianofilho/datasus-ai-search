@@ -1,13 +1,19 @@
 'use client'
 
 import { useState, KeyboardEvent } from 'react'
-import { Search, Loader2, X } from 'lucide-react'
-import { EXAMPLE_QUESTIONS } from '@/types'
+import { Search, Loader2 } from 'lucide-react'
 
 interface SearchBarProps {
   onSearch: (question: string) => void
   isLoading: boolean
 }
+
+const DATASET_PILLS = [
+  { key: 'SIM', label: 'Mortalidade', color: 'bg-red-500' },
+  { key: 'SIH', label: 'Internações', color: 'bg-blue-500' },
+  { key: 'SIA', label: 'Ambulatorial', color: 'bg-sus-green-600' },
+  { key: 'IBGE', label: 'População', color: 'bg-purple-500' },
+]
 
 export default function SearchBar({ onSearch, isLoading }: SearchBarProps) {
   const [question, setQuestion] = useState('')
@@ -25,40 +31,50 @@ export default function SearchBar({ onSearch, isLoading }: SearchBarProps) {
     }
   }
 
-  const handleExample = (q: string) => {
-    setQuestion(q)
-    onSearch(q)
-  }
-
   return (
-    <div className="w-full">
-      {/* Main input */}
-      <div className="relative bg-white rounded-xl border border-slate-200 shadow-sm focus-within:ring-2 focus-within:ring-sus-blue-600 focus-within:border-sus-blue-600 transition-all">
-        <textarea
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Digite sua pergunta sobre dados de saúde pública... (ex: Quantos óbitos por tuberculose em SP em 2020?)"
-          rows={3}
-          className="w-full px-4 pt-4 pb-12 text-slate-800 placeholder-slate-400 bg-transparent resize-none outline-none text-base"
-          disabled={isLoading}
-        />
+    <div className="w-full max-w-3xl mx-auto">
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        {/* Top bar */}
+        <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+            Pergunta Livre &middot; IA Traduz para SQL &middot; Você Revisa
+          </span>
+          <span className="flex items-center gap-1 px-2 py-0.5 border border-slate-200 rounded text-[10px] text-slate-400 font-mono bg-white">
+            <span>⌘</span>
+            <span>K</span>
+          </span>
+        </div>
 
-        {/* Actions inside textarea */}
-        <div className="absolute bottom-3 right-3 flex items-center gap-2">
-          {question && (
-            <button
-              onClick={() => setQuestion('')}
-              className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+        {/* Input area */}
+        <div className="flex items-start gap-3 px-4 pt-4 pb-3">
+          <Search className="w-5 h-5 text-slate-300 mt-0.5 flex-shrink-0" />
+          <textarea
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ex.: óbitos por dengue em municípios do Nordeste, 2019-2024, agrupado por mês"
+            rows={2}
+            className="w-full text-slate-800 placeholder-slate-300 bg-transparent resize-none outline-none text-base leading-relaxed"
+            disabled={isLoading}
+          />
+        </div>
+
+        {/* Bottom bar */}
+        <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
+          <div className="flex items-center gap-2 flex-wrap">
+            {DATASET_PILLS.map((pill) => (
+              <div key={pill.key} className="flex items-center gap-1.5 text-xs text-slate-600">
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${pill.color}`} />
+                <span className="font-semibold">{pill.key}</span>
+                <span className="text-slate-400">&middot; {pill.label}</span>
+              </div>
+            ))}
+          </div>
 
           <button
             onClick={handleSubmit}
             disabled={!question.trim() || isLoading}
-            className="flex items-center gap-2 px-4 py-2 bg-sus-blue-600 text-white rounded-lg font-medium text-sm hover:bg-sus-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-2 px-5 py-2 bg-sus-green-700 text-white rounded-lg font-medium text-sm hover:bg-sus-green-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
           >
             {isLoading ? (
               <>
@@ -67,28 +83,11 @@ export default function SearchBar({ onSearch, isLoading }: SearchBarProps) {
               </>
             ) : (
               <>
-                <Search className="w-4 h-4" />
-                Pesquisar
+                Perguntar
+                <span className="text-sus-green-300">→</span>
               </>
             )}
           </button>
-        </div>
-      </div>
-
-      {/* Example questions */}
-      <div className="mt-3">
-        <p className="text-xs text-slate-500 mb-2">Exemplos de perguntas:</p>
-        <div className="flex flex-wrap gap-2">
-          {EXAMPLE_QUESTIONS.map((q, i) => (
-            <button
-              key={i}
-              onClick={() => handleExample(q)}
-              disabled={isLoading}
-              className="px-3 py-1.5 text-xs bg-white border border-slate-200 text-slate-600 rounded-full hover:border-sus-blue-300 hover:text-sus-blue-700 hover:bg-sus-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {q.length > 50 ? q.slice(0, 50) + '…' : q}
-            </button>
-          ))}
         </div>
       </div>
     </div>
