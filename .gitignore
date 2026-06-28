@@ -62,3 +62,4 @@ frontend/.env.local
 # Backend
 backend/__pycache__/
 .vercel
+.venv/
