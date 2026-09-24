@@ -32,6 +32,7 @@ class FakeLLM:
 
     def __init__(self):
         self.calls = []
+        self.sql = FAKE_SQL
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -42,7 +43,7 @@ class FakeLLM:
                     {"path": self.path, "authorization": self.headers.get("Authorization")}
                 )
                 system = body.get("messages", [{}])[0].get("content", "")
-                content = FAKE_SQL if "SQL" in system else "Resposta de teste."
+                content = fake.sql if "SQL" in system else "Resposta de teste."
                 payload = json.dumps({
                     "id": "chatcmpl-teste",
                     "object": "chat.completion",
@@ -177,3 +178,16 @@ def test_allowlist_configuravel_por_env():
         "https://a/v1",
         "https://b/v1",
     ]
+
+
+def test_sql_malicioso_do_llm_nao_grava_arquivo(
+    client, db_maiusculas, fake_llm, monkeypatch, tmp_path
+):
+    # SRCH-02: prompt injection que faz o LLM devolver várias instruções.
+    alvo = tmp_path / "pwn.csv"
+    fake_llm.sql = f"SELECT 1; COPY (SELECT 42) TO '{alvo}'"
+    monkeypatch.setenv("LLM_API_BASE", fake_llm.base_url)
+    resp = client.post("/search", json={"question": PERGUNTA, "api_key": CLIENT_KEY})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"] == []
+    assert not alvo.exists()

@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 from ai_engine import AIEngine
-from query_executor import QueryExecutor
+from query_executor import QueryExecutor, connect_read_only
 from data_manager import DataManager
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -160,12 +160,13 @@ def detect_states_from_question(question: str) -> list:
 
 def get_existing_tables(db_path: str) -> list:
     """Retorna as tabelas que existem no banco de dados."""
-    import duckdb
     from pathlib import Path
     if not Path(db_path).exists():
         return []
     try:
-        conn = duckdb.connect(db_path, read_only=True)
+        # Mesma config do QueryExecutor: o DuckDB compartilha a instância do
+        # arquivo no processo e a primeira conexão define a config de todas.
+        conn = connect_read_only(db_path)
         tables = [r[0] for r in conn.execute(
             "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
         ).fetchall()]
