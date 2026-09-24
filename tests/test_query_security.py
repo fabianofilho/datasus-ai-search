@@ -139,10 +139,12 @@ def test_offset_nao_e_bloqueado(executor):
 
 
 def test_instancia_sem_restricoes_e_recusada(temp_db):
-    # O DuckDB reaproveita a instância aberta e ignora a config da nova conexão.
+    # O DuckDB 0.9 reaproveita a instância aberta e ignora a config da nova
+    # conexão (connect_read_only recusa com RuntimeError); o 1.x já recusa a
+    # conexão com ConnectionException. Nos dois casos a conexão não é entregue.
     aberta = duckdb.connect(temp_db, read_only=True)
     try:
-        with pytest.raises(RuntimeError):
+        with pytest.raises((RuntimeError, duckdb.ConnectionException)):
             QueryExecutor(temp_db).connect()
     finally:
         aberta.close()

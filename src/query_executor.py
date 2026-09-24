@@ -22,9 +22,10 @@ def connect_read_only(db_path: str) -> duckdb.DuckDBPyConnection:
     """
     Abre uma conexão somente leitura com SAFE_DUCKDB_CONFIG.
 
-    O DuckDB reaproveita a instância já aberta no processo para o mesmo arquivo
-    e, nesse caso, ignora a config pedida. Por isso a configuração efetiva é
-    conferida e a conexão é recusada se vier sem as restrições.
+    O DuckDB 0.9 reaproveita a instância já aberta no processo para o mesmo
+    arquivo e, nesse caso, ignora a config pedida. Por isso a configuração
+    efetiva é conferida e a conexão é recusada se vier sem as restrições. No
+    DuckDB 1.x o próprio connect já falha com ConnectionException.
     """
     conn = duckdb.connect(db_path, read_only=True, config=dict(SAFE_DUCKDB_CONFIG))
     try:
