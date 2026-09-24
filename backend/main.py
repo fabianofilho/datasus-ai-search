@@ -7,9 +7,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
+import re
 import shutil
 import threading
 import secrets
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -147,14 +149,15 @@ def detect_years_from_question(question: str) -> list:
     return [int(y) for y in years] if years else ["*"]
 
 
+UFS = {"AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS",
+       "MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC",
+       "SP","SE","TO"}
+
+
 def detect_states_from_question(question: str) -> list:
     """Extrai siglas de estados mencionados na pergunta."""
-    import re
-    STATES = {"AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS",
-               "MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC",
-               "SP","SE","TO"}
     found = re.findall(r'\b([A-Z]{2})\b', question.upper())
-    matched = [s for s in found if s in STATES]
+    matched = [s for s in found if s in UFS]
     return matched if matched else ["*"]
 
 
@@ -174,6 +177,17 @@ def get_existing_tables(db_path: str) -> list:
         return tables
     except Exception:
         return []
+
+
+# Limites do /init-db. O endpoint fica aberto porque o front público baixa
+# dados sob demanda (DownloadBanner), então cada pedido é validado contra listas
+# fechadas: datasets conhecidos, UFs, anos entre INIT_DB_ANO_MIN e o ano atual,
+# sem '*' e com no máximo INIT_DB_MAX_UF_ANO combinações de UF x ano.
+INIT_DB_DATASETS = ["sim_do", "sih_rd", "sia_pa", "ibge_pop"]
+INIT_DB_DATASETS_POR_UF = {"sim_do", "sih_rd", "sia_pa"}  # ibge_pop é nacional
+INIT_DB_ANO_MIN = 1996  # SIM com CID-10 começa em 1996; SIH e SIA, em 2008
+# Padrão 9: uma região inteira (o Nordeste tem 9 UFs) em um ano.
+INIT_DB_MAX_UF_ANO = int(os.getenv("INIT_DB_MAX_UF_ANO", "9"))
 
 
 # Estado global da inicialização do banco
@@ -234,6 +248,60 @@ class InitDBRequest(BaseModel):
     datasets: Optional[List[str]] = None
     years: Optional[List] = None
     states: Optional[List[str]] = None
+
+
+def validate_init_request(req: InitDBRequest):
+    """Valida datasets, anos e UFs do /init-db e devolve as listas normalizadas.
+
+    Recusa '*' e listas vazias, valores fora das listas fechadas e pedidos com
+    mais de INIT_DB_MAX_UF_ANO combinações de UF x ano.
+    """
+    def recusar(mensagem: str):
+        raise HTTPException(status_code=400, detail=mensagem)
+
+    if not req.datasets:
+        recusar(f"Informe os datasets: {', '.join(INIT_DB_DATASETS)}.")
+    datasets = []
+    for item in req.datasets:
+        nome = item.strip().lower()
+        if nome not in INIT_DB_DATASETS:
+            recusar(f"Dataset não permitido: {item}. Use: {', '.join(INIT_DB_DATASETS)}.")
+        if nome not in datasets:
+            datasets.append(nome)
+
+    ano_max = datetime.now(timezone.utc).year
+    if not req.years or "*" in req.years:
+        recusar("Informe os anos explicitamente; '*' (todos os anos) não é aceito.")
+    anos = []
+    for item in req.years:
+        if isinstance(item, bool) or not (
+            isinstance(item, int) or (isinstance(item, str) and re.fullmatch(r"[0-9]{4}", item.strip()))
+        ):
+            recusar(f"Ano inválido: {item}.")
+        ano = int(item)
+        if not INIT_DB_ANO_MIN <= ano <= ano_max:
+            recusar(f"Ano fora do intervalo {INIT_DB_ANO_MIN} a {ano_max}: {item}.")
+        if ano not in anos:
+            anos.append(ano)
+
+    ufs = []
+    if any(d in INIT_DB_DATASETS_POR_UF for d in datasets):
+        if not req.states or "*" in req.states:
+            recusar("Informe as UFs explicitamente; '*' (todos os estados) não é aceito.")
+        for item in req.states:
+            uf = item.strip().upper()
+            if uf not in UFS:
+                recusar(f"UF inválida: {item}.")
+            if uf not in ufs:
+                ufs.append(uf)
+
+    combinacoes = len(anos) * max(len(ufs), 1)
+    if combinacoes > INIT_DB_MAX_UF_ANO:
+        recusar(
+            f"Pedido grande demais: {combinacoes} combinações de UF x ano; "
+            f"o máximo por pedido é {INIT_DB_MAX_UF_ANO}."
+        )
+    return datasets, anos, ufs
 
 
 @app.get("/health")
@@ -319,13 +387,16 @@ async def list_tables():
 
 @app.post("/init-db")
 async def init_database(req: InitDBRequest):
+    """Baixa dados do DATASUS sob demanda, dentro dos limites INIT_DB_*.
+
+    Não exige token de admin porque o front público usa este endpoint; por isso
+    datasets, anos e UFs são obrigatórios e validados em validate_init_request.
+    """
     with _init_lock:
         if _init_state["status"] == "running":
             return {"status": "running", "message": "Inicialização já em andamento"}
 
-    datasets = req.datasets or ["sim_do", "sih_rd", "sia_pa", "ibge_pop"]
-    years = req.years or ["*"]
-    states = req.states or ["*"]
+    datasets, years, states = validate_init_request(req)
     from pathlib import Path
     Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 
