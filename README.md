@@ -171,6 +171,13 @@ OPENAI_API_KEY=ollama  # qualquer valor não vazio
 
 Qualquer provedor que implemente a API da OpenAI pode ser usado. Basta configurar `LLM_API_BASE` e `LLM_MODEL`.
 
+### API web: provedores de LLM aceitos em `/search`
+
+O endpoint `/search` do backend FastAPI aceita `api_key` e `api_base` na requisição. Para que a chave do servidor não vaze:
+
+- se a requisição trouxer `api_base`, ela precisa trazer também a própria `api_key`. A `OPENAI_API_KEY` do servidor só é usada com a URL base do servidor (`LLM_API_BASE`) ou com a detectada pelo prefixo da chave;
+- `api_base` só é aceito se estiver em `LLM_API_BASE_ALLOWLIST` (lista separada por vírgula). O padrão cobre Groq, OpenAI, Gemini e Anthropic nos endpoints compatíveis com a API da OpenAI. Para usar Ollama ou outro provedor pela interface web, inclua a URL na lista. Com a variável vazia, nenhum `api_base` do cliente é aceito.
+
 ---
 
 ## 📁 Estrutura do Projeto

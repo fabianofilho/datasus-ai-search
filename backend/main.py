@@ -49,6 +49,71 @@ def require_admin(authorization: Optional[str] = Header(None)):
 
 DB_PATH = os.getenv("DB_PATH", "data/datasus.db")
 
+# URLs base de LLM que o cliente pode escolher em /search. A chave do servidor
+# (OPENAI_API_KEY) nunca é enviada para uma URL base vinda da requisição.
+# Configurável por LLM_API_BASE_ALLOWLIST (lista separada por vírgula; vazio
+# desliga a escolha de URL base pelo cliente).
+DEFAULT_LLM_API_BASE_ALLOWLIST = [
+    "https://api.groq.com/openai/v1",
+    "https://api.openai.com/v1",
+    "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "https://api.anthropic.com/v1/",
+]
+
+
+def _parse_api_base_allowlist(raw: Optional[str]) -> List[str]:
+    if raw is None:
+        return list(DEFAULT_LLM_API_BASE_ALLOWLIST)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+LLM_API_BASE_ALLOWLIST = _parse_api_base_allowlist(os.getenv("LLM_API_BASE_ALLOWLIST"))
+
+
+def _normalize_api_base(url: str) -> str:
+    return url.strip().rstrip("/").lower()
+
+
+def resolve_llm_credentials(req_api_key: Optional[str], req_api_base: Optional[str]):
+    """Define chave e URL base do LLM para uma requisição de /search.
+
+    Se o cliente enviar api_base, exige a api_key da própria requisição e só
+    aceita URLs da allowlist. Sem api_base do cliente, usa a configuração do
+    servidor (LLM_API_BASE, OPENAI_API_KEY) ou detecta o provedor pela chave.
+    """
+    if req_api_base:
+        if not req_api_key:
+            raise HTTPException(
+                status_code=400,
+                detail="Ao informar api_base, envie também a api_key do provedor.",
+            )
+        wanted = _normalize_api_base(req_api_base)
+        for allowed in LLM_API_BASE_ALLOWLIST:
+            if _normalize_api_base(allowed) == wanted:
+                return req_api_key, allowed
+        raise HTTPException(
+            status_code=400,
+            detail="api_base não permitido. Use um dos provedores aceitos pelo servidor.",
+        )
+
+    api_key = req_api_key or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=400, detail="API key não fornecida. Configure nas configurações.")
+
+    api_base = os.getenv("LLM_API_BASE")
+
+    # Auto-detect provider from API key if base URL not provided
+    if not api_base:
+        if api_key.startswith("gsk_"):
+            api_base = "https://api.groq.com/openai/v1"
+        elif api_key.startswith("AIza"):
+            api_base = "https://generativelanguage.googleapis.com/v1beta/openai/"
+        elif api_key.startswith("sk-ant-"):
+            api_base = "https://api.anthropic.com/v1/"
+
+    return api_key, api_base
+
+
 # Mapeamento de datasets para tabelas e palavras-chave
 DATASET_TABLES = {
     "sim_do": ["sim_do"],
@@ -178,27 +243,16 @@ async def health():
 @app.post("/search")
 async def search(req: SearchRequest):
     try:
-        api_key = req.api_key or os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise HTTPException(status_code=400, detail="API key não fornecida. Configure nas configurações.")
-
-        api_base = req.api_base or os.getenv("LLM_API_BASE")
-
-        # Auto-detect provider from API key if base URL not provided
-        if not api_base:
-            if api_key.startswith("gsk_"):
-                api_base = "https://api.groq.com/openai/v1"
-            elif api_key.startswith("AIza"):
-                api_base = "https://generativelanguage.googleapis.com/v1beta/openai/"
-            elif api_key.startswith("sk-ant-"):
-                api_base = "https://api.anthropic.com/v1/"
+        api_key, api_base = resolve_llm_credentials(req.api_key, req.api_base)
 
         # Verificar se os datasets necessários estão disponíveis
         needed = detect_datasets_from_question(req.question)
         years = detect_years_from_question(req.question)
         states = detect_states_from_question(req.question)
-        existing = get_existing_tables(DB_PATH)
-        missing = [d for d in needed if d not in existing]
+        # O datasus-db cria as tabelas em maiúsculas (SIM_DO, SIH_RD...), então
+        # a comparação ignora a caixa, como o próprio DuckDB faz no SQL.
+        existing = {t.lower() for t in get_existing_tables(DB_PATH)}
+        missing = [d for d in needed if d.lower() not in existing]
         if missing:
             raise HTTPException(
                 status_code=422,
