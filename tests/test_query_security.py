@@ -118,6 +118,21 @@ def test_multiplas_instrucoes_recusadas(executor):
     assert executor.execute("SELECT ';' AS x")["x"].iloc[0] == ";"
 
 
+def test_contagem_de_instrucoes_com_acento(executor):
+    # O tokenizador do DuckDB devolve posições em bytes UTF-8; com acento antes
+    # do ponto e vírgula, indexar a str errava a posição.
+    assert count_statements("SELECT 'óbito' AS x; SELECT 2") == 2
+    assert count_statements("SELECT 'é'; SELECT 2") == 2
+    with pytest.raises(PermissionError, match="uma instrucao"):
+        executor.execute("SELECT 'São Paulo' AS uf; SELECT 2")
+    assert executor.validate_query("SELECT 'São Paulo' AS uf; SELECT 2") is False
+    # Consulta legítima com acento e ponto e vírgula final continua aceita.
+    consulta = "SELECT COUNT(*) AS total FROM sim_do WHERE CAUSABAS IN ('Pará', 'Amapá');"
+    assert count_statements(consulta) == 1
+    assert executor.validate_query(consulta) is True
+    assert executor.execute(consulta)["total"].iloc[0] == 0
+
+
 def test_offset_nao_e_bloqueado(executor):
     result = executor.execute("SELECT * FROM sim_do ORDER BY DTOBITO LIMIT 10 OFFSET 1")
     assert list(result["CAUSABAS"]) == ["B34"]

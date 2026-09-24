@@ -45,11 +45,18 @@ def connect_read_only(db_path: str) -> duckdb.DuckDBPyConnection:
 
 
 def count_statements(query: str) -> int:
-    """Conta as instruções SQL da string usando o tokenizador do DuckDB."""
+    """
+    Conta as instruções SQL da string usando o tokenizador do DuckDB.
+
+    O tokenizador devolve a posição de cada token em bytes UTF-8, não em
+    caracteres. Com acento antes do ponto e vírgula ('São Paulo', 'óbito'),
+    indexar a str desloca a posição, então a comparação é feita nos bytes.
+    """
+    encoded = query.encode("utf-8")
     count = 0
     pending = False
     for start, token_type in duckdb.tokenize(query):
-        if token_type == duckdb.token_type.operator and query[start] == ";":
+        if token_type == duckdb.token_type.operator and encoded[start:start + 1] == b";":
             if pending:
                 count += 1
             pending = False
