@@ -6,7 +6,6 @@ import { api } from '@/lib/api'
 import { DATASET_INFO } from '@/types'
 
 const STATES = [
-  { value: '*', label: 'Todos os estados' },
   { value: 'AC', label: 'AC' }, { value: 'AL', label: 'AL' }, { value: 'AP', label: 'AP' },
   { value: 'AM', label: 'AM' }, { value: 'BA', label: 'BA' }, { value: 'CE', label: 'CE' },
   { value: 'DF', label: 'DF' }, { value: 'ES', label: 'ES' }, { value: 'GO', label: 'GO' },
@@ -17,6 +16,11 @@ const STATES = [
   { value: 'RO', label: 'RO' }, { value: 'RR', label: 'RR' }, { value: 'SC', label: 'SC' },
   { value: 'SP', label: 'SP' }, { value: 'SE', label: 'SE' }, { value: 'TO', label: 'TO' },
 ]
+
+// O backend recusa '*' e limita as combinacoes de UF x ano por pedido (INIT_DB_MAX_UF_ANO).
+// Por isso estado e ano sao sempre explicitos aqui.
+const ANO_ATUAL = new Date().getFullYear()
+const ANOS = Array.from({ length: ANO_ATUAL - 2008 + 1 }, (_, i) => ANO_ATUAL - i)
 
 const REGIONS: Record<string, string[]> = {
   'Norte': ['AC', 'AP', 'AM', 'PA', 'RO', 'RR', 'TO'],
@@ -38,7 +42,10 @@ interface DownloadBannerProps {
 export default function DownloadBanner({
   datasets, years, detectedStates, onDone, onRetrySearch, onClose,
 }: DownloadBannerProps) {
-  const [selectedStates, setSelectedStates] = useState<string[]>(detectedStates)
+  const [selectedStates, setSelectedStates] = useState<string[]>(detectedStates.filter(s => s !== '*'))
+  const anoAberto = years.length === 0 || years.includes('*')
+  const [selectedYear, setSelectedYear] = useState<number>(ANO_ATUAL - 2)
+  const precisaUF = datasets.some(d => d !== 'ibge_pop')
   const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
   const [progress, setProgress] = useState({ current: '', completed: [] as string[], error: '' })
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -48,16 +55,10 @@ export default function DownloadBanner({
   }, [])
 
   const toggleState = (st: string) => {
-    if (st === '*') {
-      setSelectedStates(['*'])
-      return
-    }
-    const next = selectedStates.filter(s => s !== '*')
-    if (next.includes(st)) {
-      const filtered = next.filter(s => s !== st)
-      setSelectedStates(filtered.length ? filtered : ['*'])
+    if (selectedStates.includes(st)) {
+      setSelectedStates(selectedStates.filter(s => s !== st))
     } else {
-      setSelectedStates([...next, st])
+      setSelectedStates([...selectedStates, st])
     }
   }
 
@@ -65,10 +66,9 @@ export default function DownloadBanner({
     const states = REGIONS[region]
     const allSelected = states.every(s => selectedStates.includes(s))
     if (allSelected) {
-      const filtered = selectedStates.filter(s => !states.includes(s))
-      setSelectedStates(filtered.length ? filtered : ['*'])
+      setSelectedStates(selectedStates.filter(s => !states.includes(s)))
     } else {
-      const merged = Array.from(new Set([...selectedStates.filter(s => s !== '*'), ...states]))
+      const merged = Array.from(new Set([...selectedStates, ...states]))
       setSelectedStates(merged)
     }
   }
@@ -77,7 +77,7 @@ export default function DownloadBanner({
     setStatus('loading')
     setProgress({ current: '', completed: [], error: '' })
     try {
-      await api.initDb(datasets, years, selectedStates)
+      await api.initDb(datasets, anoAberto ? [selectedYear] : years, precisaUF ? selectedStates : [])
       pollRef.current = setInterval(async () => {
         try {
           const s = await api.initDbStatus()
@@ -129,10 +129,22 @@ export default function DownloadBanner({
             <p className="text-xs text-amber-700 mb-1">
               Dataset: <strong>{datasets.map(d => DATASET_INFO[d]?.label || d).join(', ')}</strong>
             </p>
-            {years[0] !== '*' && (
+            {!anoAberto && (
               <p className="text-xs text-amber-700 mb-1">
                 Ano(s): <strong>{years.join(', ')}</strong>
               </p>
+            )}
+            {anoAberto && status === 'idle' && (
+              <label className="flex items-center gap-2 text-xs text-amber-700 mb-1">
+                Ano:
+                <select
+                  value={selectedYear}
+                  onChange={e => setSelectedYear(Number(e.target.value))}
+                  className="px-1.5 py-0.5 text-xs border border-amber-300 rounded bg-white"
+                >
+                  {ANOS.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </label>
             )}
 
             {/* State selector */}
@@ -164,22 +176,12 @@ export default function DownloadBanner({
                       </button>
                     )
                   })}
-                  <button
-                    onClick={() => setSelectedStates(['*'])}
-                    className={`px-2 py-1 text-xs rounded-md border transition-colors ${
-                      selectedStates.includes('*')
-                        ? 'bg-amber-700 text-white border-amber-700'
-                        : 'bg-white text-amber-700 border-amber-300 hover:border-amber-500'
-                    }`}
-                  >
-                    Brasil inteiro
-                  </button>
                 </div>
 
                 {/* Individual state chips */}
-                {!selectedStates.includes('*') && (
+                {precisaUF && (
                   <div className="flex flex-wrap gap-1">
-                    {STATES.filter(s => s.value !== '*').map(st => {
+                    {STATES.map(st => {
                       const selected = selectedStates.includes(st.value)
                       return (
                         <button
@@ -199,9 +201,11 @@ export default function DownloadBanner({
                 )}
 
                 <p className="text-xs text-amber-500 mt-2">
-                  {selectedStates.includes('*')
-                    ? 'Todos os estados serao baixados (pode demorar mais)'
-                    : `${selectedStates.length} estado(s) selecionado(s)`}
+                  {!precisaUF
+                    ? 'Dado nacional, sem escolha de estado'
+                    : selectedStates.length === 0
+                      ? 'Selecione ao menos um estado'
+                      : `${selectedStates.length} estado(s) selecionado(s); cada pedido aceita poucas combinacoes de estado x ano`}
                 </p>
               </div>
             )}
@@ -253,7 +257,8 @@ export default function DownloadBanner({
             {status === 'idle' && (
               <button
                 onClick={handleDownload}
-                className="mt-2 flex items-center gap-2 px-3 py-1.5 text-xs bg-amber-700 text-white rounded-lg hover:bg-amber-800 transition-colors"
+                disabled={precisaUF && selectedStates.length === 0}
+                className="mt-2 flex items-center gap-2 px-3 py-1.5 text-xs bg-amber-700 text-white rounded-lg hover:bg-amber-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Database className="w-3.5 h-3.5" />
                 Baixar e pesquisar

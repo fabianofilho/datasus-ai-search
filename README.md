@@ -171,6 +171,33 @@ OPENAI_API_KEY=ollama  # qualquer valor não vazio
 
 Qualquer provedor que implemente a API da OpenAI pode ser usado. Basta configurar `LLM_API_BASE` e `LLM_MODEL`.
 
+### API web: provedores de LLM aceitos em `/search`
+
+O endpoint `/search` do backend FastAPI aceita `api_key` e `api_base` na requisição. Para que a chave do servidor não vaze:
+
+- se a requisição trouxer `api_base`, ela precisa trazer também a própria `api_key`. A `OPENAI_API_KEY` do servidor só é usada com a URL base do servidor (`LLM_API_BASE`) ou com a detectada pelo prefixo da chave;
+- `api_base` só é aceito se estiver em `LLM_API_BASE_ALLOWLIST` (lista separada por vírgula). O padrão cobre Groq, OpenAI, Gemini e Anthropic nos endpoints compatíveis com a API da OpenAI. Para usar Ollama ou outro provedor pela interface web, inclua a URL na lista. Com a variável vazia, nenhum `api_base` do cliente é aceito.
+
+### API web: download sob demanda em `/init-db`
+
+O `/init-db` não exige token de admin, porque o front público baixa os dados que faltam para responder a pergunta. Em troca, cada pedido é validado:
+
+- `datasets`, `years` e `states` são obrigatórios. `ibge_pop` é nacional e dispensa `states`;
+- datasets aceitos: `sim_do`, `sih_rd`, `sia_pa` e `ibge_pop`;
+- anos inteiros entre 1996 e o ano atual; UFs entre as 27 siglas;
+- `'*'` (todos os anos ou todos os estados) é recusado;
+- o número de combinações UF x ano por pedido não passa de `INIT_DB_MAX_UF_ANO` (padrão 9, uma região inteira em um ano). No SIH e no SIA cada combinação baixa os 12 arquivos mensais.
+
+Pedidos fora dessas regras recebem HTTP 400 com o motivo. Para carregar volumes maiores, use `python src/cli.py --init` ou `scripts/init_local.py` e envie o banco com `/upload-db`, que exige `ADMIN_TOKEN`.
+
+Exemplo:
+
+```bash
+curl -X POST http://localhost:8000/init-db \
+  -H 'Content-Type: application/json' \
+  -d '{"datasets": ["sim_do"], "years": [2020], "states": ["SP", "RJ"]}'
+```
+
 ---
 
 ## 📁 Estrutura do Projeto

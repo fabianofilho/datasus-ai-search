@@ -1,10 +1,9 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { X, Key, Cpu, Save, Database, Loader2, CheckCircle, AlertCircle, ExternalLink, ChevronDown } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { X, Key, Cpu, Save, Database, ExternalLink, ChevronDown } from 'lucide-react'
 import type { AppConfig } from '@/types'
 import { MODELS_BY_PROVIDER, API_BASE_DEFAULTS, detectProvider } from '@/types'
-import { api } from '@/lib/api'
 
 interface ConfigModalProps {
   isOpen: boolean
@@ -18,13 +17,6 @@ const PROVIDER_LABELS: Record<string, { name: string; badge?: string; color: str
   openai: { name: 'OpenAI', color: 'text-green-600' },
   gemini: { name: 'Google Gemini', badge: 'Grátis', color: 'text-blue-600' },
   anthropic: { name: 'Anthropic', color: 'text-purple-600' },
-}
-
-const DATASET_LABELS: Record<string, string> = {
-  sim_do: 'SIM — Mortalidade',
-  sih_rd: 'SIH — Internações',
-  sia_pa: 'SIA — Ambulatorial',
-  ibge_pop: 'IBGE — População',
 }
 
 const QUICK_PROVIDERS = [
@@ -52,15 +44,9 @@ const QUICK_PROVIDERS = [
   },
 ]
 
-type InitStatus = 'idle' | 'loading' | 'success' | 'error'
-
 export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigModalProps) {
   const [local, setLocal] = useState<AppConfig>(config)
-  const [initStatus, setInitStatus] = useState<InitStatus>('idle')
-  const [initMessage, setInitMessage] = useState('')
-  const [initProgress, setInitProgress] = useState<{ current: string; completed: string[] }>({ current: '', completed: [] })
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const hasKey = !!local.apiKey.trim()
   const provider = detectProvider(local.apiKey)
@@ -69,15 +55,8 @@ export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigM
 
   useEffect(() => {
     setLocal(config)
-    setInitStatus('idle')
-    setInitMessage('')
-    setInitProgress({ current: '', completed: [] })
     setShowAdvanced(false)
   }, [config, isOpen])
-
-  useEffect(() => {
-    return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [])
 
   if (!isOpen) return null
 
@@ -99,33 +78,6 @@ export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigM
     onSave(local)
     localStorage.setItem('datasus_config', JSON.stringify(local))
     onClose()
-  }
-
-  const handleInitDb = async () => {
-    setInitStatus('loading')
-    setInitMessage('')
-    setInitProgress({ current: '', completed: [] })
-    try {
-      await api.initDb()
-      pollRef.current = setInterval(async () => {
-        try {
-          const s = await api.initDbStatus()
-          setInitProgress({ current: s.current, completed: s.completed })
-          if (s.status === 'done') {
-            clearInterval(pollRef.current!)
-            setInitStatus('success')
-            setInitMessage('Banco de dados inicializado com sucesso!')
-          } else if (s.status === 'error') {
-            clearInterval(pollRef.current!)
-            setInitStatus('error')
-            setInitMessage(s.error || 'Erro ao inicializar')
-          }
-        } catch {}
-      }, 2000)
-    } catch (e) {
-      setInitStatus('error')
-      setInitMessage(e instanceof Error ? e.message : 'Erro ao inicializar banco de dados')
-    }
   }
 
   return (
@@ -246,63 +198,16 @@ export default function ConfigModal({ isOpen, onClose, config, onSave }: ConfigM
             </div>
           )}
 
-          {/* Init DB */}
+          {/* Dados DATASUS */}
           <div className="border border-slate-200 rounded-xl p-4 bg-slate-50">
             <div className="flex items-center gap-2 mb-1">
               <Database className="w-3.5 h-3.5 text-slate-600" />
-              <span className="text-sm font-medium text-slate-700">Banco de Dados DATASUS</span>
+              <span className="text-sm font-medium text-slate-700">Dados DATASUS</span>
             </div>
-            <p className="text-xs text-slate-500 mb-3">
-              Baixa os dados de mortalidade, internações, ambulatorial e população. Pode demorar alguns minutos.
+            <p className="text-xs text-slate-500">
+              Os dados sao baixados sob demanda. Faca uma pergunta: se faltar dado, um aviso pede o
+              estado e o ano, e o download fica limitado a poucas combinacoes por vez.
             </p>
-
-            {initStatus === 'loading' && (
-              <div className="mb-3 space-y-1">
-                {Object.entries(DATASET_LABELS).map(([key, label]) => {
-                  const done = initProgress.completed.includes(key)
-                  const active = initProgress.current === key
-                  return (
-                    <div key={key} className="flex items-center gap-2 text-xs">
-                      {done ? (
-                        <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-                      ) : active ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-sus-green-600 flex-shrink-0" />
-                      ) : (
-                        <div className="w-3.5 h-3.5 rounded-full border border-slate-300 flex-shrink-0" />
-                      )}
-                      <span className={done ? 'text-green-700' : active ? 'text-sus-green-700 font-medium' : 'text-slate-400'}>
-                        {label}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-            {initStatus === 'success' && (
-              <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-100 rounded-lg px-3 py-2 mb-3">
-                <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                <span>{initMessage}</span>
-              </div>
-            )}
-            {initStatus === 'error' && (
-              <div className="flex items-center gap-2 text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-3">
-                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="break-all">{initMessage}</span>
-              </div>
-            )}
-
-            <button
-              onClick={handleInitDb}
-              disabled={initStatus === 'loading'}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs bg-slate-800 text-white rounded-lg hover:bg-slate-900 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {initStatus === 'loading' ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Database className="w-3.5 h-3.5" />
-              )}
-              {initStatus === 'loading' ? 'Baixando dados...' : 'Inicializar Banco de Dados'}
-            </button>
           </div>
         </div>
 

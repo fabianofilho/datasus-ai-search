@@ -12,6 +12,59 @@ _SAFE_TABLE_NAME = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 logger = logging.getLogger(__name__)
 
+# Configuração de toda conexão de leitura do DuckDB: sem acesso a arquivos,
+# rede ou extensões externas (bloqueia read_csv, glob, COPY TO, ATTACH, INSTALL)
+# e com a configuração travada para que um SET não reative nada.
+SAFE_DUCKDB_CONFIG = {"enable_external_access": False, "lock_configuration": True}
+
+
+def connect_read_only(db_path: str) -> duckdb.DuckDBPyConnection:
+    """
+    Abre uma conexão somente leitura com SAFE_DUCKDB_CONFIG.
+
+    O DuckDB 0.9 reaproveita a instância já aberta no processo para o mesmo
+    arquivo e, nesse caso, ignora a config pedida. Por isso a configuração
+    efetiva é conferida e a conexão é recusada se vier sem as restrições. No
+    DuckDB 1.x o próprio connect já falha com ConnectionException.
+    """
+    conn = duckdb.connect(db_path, read_only=True, config=dict(SAFE_DUCKDB_CONFIG))
+    try:
+        external_access, locked = conn.execute(
+            "SELECT current_setting('enable_external_access'), "
+            "current_setting('lock_configuration')"
+        ).fetchone()
+    except Exception:
+        conn.close()
+        raise
+    if external_access or not locked:
+        conn.close()
+        raise RuntimeError(
+            "Conexao DuckDB sem as restricoes de seguranca: ja existe no processo "
+            "uma conexao com outra configuracao para este arquivo."
+        )
+    return conn
+
+
+def count_statements(query: str) -> int:
+    """
+    Conta as instruções SQL da string usando o tokenizador do DuckDB.
+
+    O tokenizador devolve a posição de cada token em bytes UTF-8, não em
+    caracteres. Com acento antes do ponto e vírgula ('São Paulo', 'óbito'),
+    indexar a str desloca a posição, então a comparação é feita nos bytes.
+    """
+    encoded = query.encode("utf-8")
+    count = 0
+    pending = False
+    for start, token_type in duckdb.tokenize(query):
+        if token_type == duckdb.token_type.operator and encoded[start:start + 1] == b";":
+            if pending:
+                count += 1
+            pending = False
+        else:
+            pending = True
+    return count + (1 if pending else 0)
+
 
 class QueryExecutor:
     """
@@ -36,24 +89,28 @@ class QueryExecutor:
             Conexão com o DuckDB.
         """
         if self.conn is None:
-            self.conn = duckdb.connect(self.db_path, read_only=True)
+            self.conn = connect_read_only(self.db_path)
         return self.conn
 
+    # Segunda barreira, depois da config da conexão. Palavras inteiras, para
+    # pegar variações com tab ou quebra de linha e não bloquear OFFSET.
     BLOCKED_PATTERNS = [
-        "read_csv", "read_parquet", "read_json", "read_blob",
-        "read_text", "glob(", "httpfs", "copy ", "attach ",
-        "install ", "load ", "create ", "drop ", "alter ",
-        "insert ", "update ", "delete ", "pragma ", "export ",
-        "import ", "call ", "set ", "execute(",
+        r"\bread_\w+", r"\bglob\b", r"\bhttpfs\b", r"\bcopy\b", r"\battach\b",
+        r"\binstall\b", r"\bload\b", r"\bcreate\b", r"\bdrop\b", r"\balter\b",
+        r"\binsert\b", r"\bupdate\b", r"\bdelete\b", r"\bpragma\b", r"\bexport\b",
+        r"\bimport\b", r"\bcall\b", r"\bset\b", r"\breset\b", r"\bexecute\b",
     ]
 
     def _validate_safe(self, query: str) -> None:
         normalized = query.strip().lower()
         if not normalized.startswith("select") and not normalized.startswith("with"):
             raise PermissionError("Apenas consultas SELECT sao permitidas.")
+        if count_statements(query) != 1:
+            raise PermissionError("Apenas uma instrucao SQL por consulta e permitida.")
         for pattern in self.BLOCKED_PATTERNS:
-            if pattern in normalized:
-                raise PermissionError(f"Operacao bloqueada: {pattern.strip()}")
+            match = re.search(pattern, normalized)
+            if match:
+                raise PermissionError(f"Operacao bloqueada: {match.group(0)}")
 
     def execute(self, query: str) -> pd.DataFrame:
         """
@@ -83,6 +140,14 @@ class QueryExecutor:
         Returns:
             True se a consulta é válida, False caso contrário.
         """
+        # A guarda vem antes do EXPLAIN: numa string com várias instruções,
+        # o DuckDB executa todas as anteriores à última.
+        try:
+            self._validate_safe(query)
+        except PermissionError as e:
+            logger.warning(f"Query bloqueada: {e}")
+            return False
+
         conn = self.connect()
 
         try:
