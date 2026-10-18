@@ -14,7 +14,9 @@ import { api, NeedsInitError } from '@/lib/api'
 import type { SearchResponse, QueryHistoryItem, AppConfig } from '@/types'
 import { EXAMPLE_QUESTIONS } from '@/types'
 
-const DEFAULT_CONFIG: AppConfig = { apiKey: '', apiBase: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' }
+const REMOVED_MODELS = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768']
+
+const DEFAULT_CONFIG: AppConfig = { apiKey: '', apiBase: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-20b' }
 
 const STATS = [
   { icon: LayoutGrid, label: '14 fontes integradas' },
@@ -39,7 +41,13 @@ export default function HomePage() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem('datasus_config')
-      if (saved) setConfig(JSON.parse(saved))
+      if (saved) {
+        const parsed: AppConfig = JSON.parse(saved)
+        // Configuração salva com um modelo que saiu do catálogo do provedor (Llama e
+        // Mixtral no Groq) faria toda busca falhar: volta para o padrão.
+        if (REMOVED_MODELS.includes(parsed.model)) parsed.model = DEFAULT_CONFIG.model
+        setConfig(parsed)
+      }
     } catch {}
   }, [])
 

@@ -14,8 +14,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Create data directory and empty DuckDB file so read_only mode works
-RUN mkdir -p /app/data && python3 -c "import duckdb; duckdb.connect('/app/data/datasus.db').close()"
+# Banco já com um recorte de demonstração. No plano gratuito do Render o disco se
+# apaga a cada reinício, e sem dados prontos a primeira busca depois de o serviço
+# dormir mandava baixar do FTP do DATASUS na hora. O recorte padrão (SIM de SP em
+# 2020, cerca de 26 MB e 20 s de download) cobre a pergunta de exemplo de
+# tuberculose; troque por build arg ou deixe '{}' para imagem vazia.
+ARG PRELOAD='{"sim_do": {"years": [2020], "states": ["SP"]}}'
+RUN mkdir -p /app/data \
+    && python3 -c "import duckdb; duckdb.connect('/app/data/datasus.db').close()" \
+    && if [ "$PRELOAD" != "{}" ]; then python3 src/importador.py /app/data/datasus.db "$PRELOAD"; fi
 
 EXPOSE 8000
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
