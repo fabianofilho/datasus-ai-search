@@ -39,10 +39,11 @@ class FakeLLM:
             def do_POST(self):
                 length = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(length) or b"{}")
-                fake.calls.append(
-                    {"path": self.path, "authorization": self.headers.get("Authorization")}
-                )
                 system = body.get("messages", [{}])[0].get("content", "")
+                fake.calls.append(
+                    {"path": self.path, "authorization": self.headers.get("Authorization"),
+                     "system": system}
+                )
                 content = fake.sql if "SQL" in system else "Resposta de teste."
                 payload = json.dumps({
                     "id": "chatcmpl-teste",
@@ -191,3 +192,41 @@ def test_sql_malicioso_do_llm_nao_grava_arquivo(
     assert resp.status_code == 200, resp.text
     assert resp.json()["data"] == []
     assert not alvo.exists()
+
+
+def test_contagem_responde_sem_segunda_chamada_ao_modelo(client, db_maiusculas, fake_llm, monkeypatch):
+    """Resultado de um número só: a resposta sai do backend, sem reescrever o número em frase."""
+    monkeypatch.setenv("LLM_API_BASE", fake_llm.base_url)
+    r = client.post("/search", json={"question": PERGUNTA})
+    assert r.status_code == 200, r.text
+    corpo = r.json()
+    assert len(fake_llm.calls) == 1
+    assert "**2**" in corpo["answer"]
+    assert corpo["data"] == [{"total": 2}] and corpo["row_count"] == 1
+
+
+def test_prompt_so_leva_a_tabela_da_pergunta(client, db_maiusculas, fake_llm, monkeypatch):
+    monkeypatch.setenv("LLM_API_BASE", fake_llm.base_url)
+    conn = duckdb.connect(db_maiusculas)
+    conn.execute("CREATE TABLE SIH_RD (DIAG_PRINC VARCHAR, DT_INTER DATE, VAL_TOT DOUBLE)")
+    conn.close()
+    r = client.post("/search", json={"question": PERGUNTA})
+    assert r.status_code == 200, r.text
+    prompt = fake_llm.calls[0]["system"]
+    assert "SIM_DO" in prompt and "SIH_RD" not in prompt
+    assert "LIKE '%tuberculose%'" not in prompt
+
+
+def test_palavras_comuns_nao_viram_uf():
+    assert main.detect_states_from_question("Quantos óbitos se registraram em 2020?") == ["*"]
+    assert main.detect_states_from_question("Óbitos em SP e RJ em 2020") == ["SP", "RJ"]
+
+
+def test_prompt_de_resposta_proibe_numero_inventado():
+    """Em produção, com o SQL devolvendo 0, o modelo respondeu "cerca de 1.200 óbitos" e uma
+    série de anos que não estava no resultado, porque o prompt mandava comparar com anos
+    anteriores. O prompt agora proíbe número fora do resultado e comparação com o que não veio."""
+    from ai_engine import SYSTEM_PROMPT_ANSWER
+
+    assert "SOMENTE os números que aparecem no resultado" in SYSTEM_PROMPT_ANSWER
+    assert "compare com anos anteriores" not in SYSTEM_PROMPT_ANSWER

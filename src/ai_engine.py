@@ -4,7 +4,7 @@ Módulo para integração com LLM e geração de consultas SQL.
 
 import logging
 import re
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 from openai import OpenAI
 from query_executor import QueryExecutor
 
@@ -26,25 +26,56 @@ Regras OBRIGATÓRIAS:
 
 {schema_section}
 
+CÓDIGOS (erro comum):
+- CAUSABAS (SIM) e DIAG_PRINC (SIH) guardam códigos CID-10, como 'A150' ou 'I219', nunca o nome da doença.
+  Filtre pela categoria de 3 caracteres: LEFT(CAUSABAS, 3) BETWEEN 'A15' AND 'A19' (tuberculose).
+  Grupos úteis: tuberculose A15-A19; circulatório I00-I99; infarto I21-I22; AVC I60-I69;
+  neoplasias C00-D48; diabetes E10-E14; pneumonia J12-J18; agressões X85-Y09; causas externas V01-Y98.
+- CODMUNRES tem 6 dígitos e começa pelo código IBGE da UF (SP = '35', RJ = '33', MG = '31').
+
 EXEMPLOS:
 Pergunta: "Quantos óbitos por tuberculose em São Paulo em 2020?"
-SQL: SELECT COUNT(*) as total_obitos FROM sim_do WHERE LOWER(CAUSABAS) LIKE '%tuberculose%' AND CODMUNRES LIKE '35%' AND YEAR(DTOBITO) = 2020
+SQL: SELECT COUNT(*) AS total_obitos FROM sim_do WHERE LEFT(CAUSABAS, 3) BETWEEN 'A15' AND 'A19' AND CODMUNRES LIKE '35%' AND YEAR(DTOBITO) = 2020
 
 Pergunta: "Número de internações por doenças cardiovasculares em 2020"
-SQL: SELECT COUNT(*) as total_internacoes, YEAR(DT_INTER) as ano FROM sih_rd WHERE LOWER(DIAG_PRINC) LIKE '%cardiovascular%' AND YEAR(DT_INTER) = 2020 GROUP BY ano
+SQL: SELECT COUNT(*) AS total_internacoes FROM sih_rd WHERE LEFT(DIAG_PRINC, 1) = 'I' AND YEAR(DT_INTER) = 2020
 """
 
-SYSTEM_PROMPT_ANSWER = """Você é um especialista em saúde pública e epidemiologia, com profundo conhecimento do sistema de saúde brasileiro (SUS).
-Sua tarefa é interpretar resultados de consultas ao banco de dados do DATASUS e formular uma resposta clara, informativa e em português.
+SYSTEM_PROMPT_ANSWER = """Você é um especialista em saúde pública e epidemiologia do SUS.
+Sua tarefa é descrever, em português, o resultado de uma consulta ao banco do DATASUS.
 
-Diretrizes:
-- Seja objetivo e direto na resposta.
-- Contextualize os números (ex: compare com anos anteriores se relevante).
-- Mencione limitações dos dados quando pertinente.
-- Use linguagem acessível, mas precisa do ponto de vista epidemiológico.
-- Se os dados forem insuficientes ou inconclusivos, diga isso claramente.
-- Formate números grandes com separadores de milhar.
+Regras obrigatórias:
+- Use SOMENTE os números que aparecem no resultado abaixo. Nunca invente, estime, arredonde para
+  "cerca de" nem traga números de memória, de outros anos ou de outras fontes.
+- Não compare com anos, lugares ou grupos que não estejam no resultado.
+- Se o resultado for zero ou vazio, diga isso e sugira conferir o filtro ou se os dados do
+  recorte estão carregados; não complete com estimativas.
+- Seja direto: até 5 frases ou uma tabela curta. Números com separador de milhar.
 """
+
+
+def _numero_br(valor) -> str:
+    """1234567.891 -> '1.234.567,89'; inteiro sem casas decimais."""
+    if isinstance(valor, bool):
+        return str(valor)
+    if isinstance(valor, int) or (isinstance(valor, float) and valor.is_integer()):
+        return f"{int(valor):,}".replace(",", ".")
+    if isinstance(valor, float):
+        return f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return str(valor)
+
+
+def resposta_de_um_valor(coluna: str, valor) -> str:
+    """Resposta direta para resultado de uma linha e uma coluna, sem chamar o modelo."""
+    try:
+        import numpy as np
+
+        if isinstance(valor, np.generic):
+            valor = valor.item()
+    except ImportError:
+        pass
+    rotulo = str(coluna).replace("_", " ").strip()
+    return f"Resultado ({rotulo}): **{_numero_br(valor)}**."
 
 
 class AIEngine:
@@ -57,7 +88,7 @@ class AIEngine:
         self,
         api_key: str,
         api_base: Optional[str] = None,
-        model: str = "llama-3.3-70b-versatile",
+        model: str = "openai/gpt-oss-20b",
         db_path: str = "data/datasus.db",
     ):
         """
@@ -81,21 +112,36 @@ class AIEngine:
             client_kwargs["base_url"] = api_base
         self.client = OpenAI(**client_kwargs)
 
-    def _build_schema_section(self) -> str:
+    def _build_schema_section(self, tabelas: Optional[List[str]] = None) -> str:
         """
-        Constrói a seção de esquema do banco de dados para o prompt do LLM.
+        Constrói a seção de esquema do prompt, só com as tabelas pedidas.
 
-        Returns:
-            String com o esquema das tabelas disponíveis.
+        Mandar o esquema de todas as tabelas fazia o prompt crescer com cada
+        dataset baixado (SIM e SIH têm perto de cem colunas cada): mais tokens,
+        resposta mais lenta e o limite por minuto do provedor estourando antes.
+        Colunas VARCHAR saem só com o nome; as demais levam o tipo.
+
+        Args:
+            tabelas: nomes das tabelas relevantes (sem diferenciar maiúsculas);
+                se nenhuma existir no banco, usa todas.
         """
-        tables = self.query_executor.list_tables()
-        if not tables:
+        existentes = self.query_executor.list_tables()
+        if not existentes:
             return "TABELAS DISPONÍVEIS: Nenhuma tabela encontrada no banco de dados."
 
+        escolhidas = existentes
+        if tabelas:
+            pedidas = {t.lower() for t in tabelas}
+            filtradas = [t for t in existentes if t.lower() in pedidas]
+            escolhidas = filtradas or existentes
+
         schema_lines = ["TABELAS DISPONÍVEIS:"]
-        for table in tables:
+        for table in escolhidas:
             schema = self.query_executor.get_table_schema(table)
-            cols = ", ".join([f"{col} ({dtype})" for col, dtype in schema.items()])
+            cols = ", ".join(
+                col if dtype.upper().startswith("VARCHAR") else f"{col} ({dtype})"
+                for col, dtype in schema.items()
+            )
             schema_lines.append(f"- {table}: {cols}")
 
         return "\n".join(schema_lines)
@@ -115,7 +161,7 @@ class AIEngine:
         sql = sql.replace("```", "")
         return sql.strip()
 
-    def generate_sql_query(self, user_question: str) -> str:
+    def generate_sql_query(self, user_question: str, tabelas: Optional[List[str]] = None) -> str:
         """
         Gera uma consulta SQL baseada na pergunta do usuário.
 
@@ -128,7 +174,7 @@ class AIEngine:
         Raises:
             Exception: Se houver erro na chamada da API.
         """
-        schema_section = self._build_schema_section()
+        schema_section = self._build_schema_section(tabelas)
         system_prompt = SYSTEM_PROMPT_SQL.format(schema_section=schema_section)
 
         logger.info(f"Gerando SQL para pergunta: {user_question}")
@@ -177,7 +223,7 @@ class AIEngine:
                 {"role": "user", "content": user_content},
             ],
             temperature=0.3,
-            max_tokens=1000,
+            max_tokens=500,
         )
 
         formatted_response = response.choices[0].message.content.strip()
@@ -188,54 +234,61 @@ class AIEngine:
         """
         Responde uma pergunta do usuário sobre dados do DATASUS.
 
-        Args:
-            user_question: Pergunta em linguagem natural.
-
         Returns:
             Tupla contendo (pergunta, consulta_sql, resposta_formatada).
+        """
+        r = self.responder(user_question)
+        return (r["question"], r["sql"], r["answer"])
 
-        Raises:
-            Exception: Se houver erro em qualquer etapa.
+    def responder(self, user_question: str, tabelas: Optional[List[str]] = None) -> dict:
+        """
+        Gera o SQL, executa uma vez e redige a resposta.
+
+        Devolve também o DataFrame do resultado, para quem chama não precisar rodar
+        o SQL de novo. Resultado de um só número (uma contagem, uma soma) é
+        respondido aqui mesmo, sem a segunda chamada ao modelo: é o caso mais comum
+        e a chamada só reescrevia o número em frase.
+
+        Returns:
+            dict com question, sql, answer e df (pandas.DataFrame ou None).
         """
         logger.info(f"Respondendo pergunta: {user_question}")
 
-        # 1. Gerar SQL
-        sql_query = self.generate_sql_query(user_question)
+        sql_query = self.generate_sql_query(user_question, tabelas)
 
-        # 2. Validar SQL
         if not self.query_executor.validate_query(sql_query):
             logger.warning("SQL gerado não passou na validação, tentando novamente...")
-            # Tentar uma segunda vez com instrução mais explícita
             retry_question = (
                 f"{user_question}\n\n"
                 "IMPORTANTE: A última SQL gerada foi inválida. "
                 "Gere uma SQL mais simples e garantidamente válida para DuckDB."
             )
-            sql_query = self.generate_sql_query(retry_question)
+            sql_query = self.generate_sql_query(retry_question, tabelas)
 
             if not self.query_executor.validate_query(sql_query):
-                return (
-                    user_question,
-                    sql_query,
-                    "Não foi possível gerar uma consulta válida para essa pergunta. "
-                    "Tente reformulá-la de forma mais específica.",
-                )
+                return {
+                    "question": user_question,
+                    "sql": sql_query,
+                    "answer": "Não foi possível gerar uma consulta válida para essa pergunta. "
+                              "Tente reformulá-la de forma mais específica.",
+                    "df": None,
+                }
 
-        # 3. Executar consulta
         results_df = self.query_executor.execute(sql_query)
 
-        # 4. Formatar resultados
         if results_df.empty:
-            formatted_response = (
+            answer = (
                 "Nenhum resultado encontrado para sua consulta. "
                 "Verifique se os dados para o período e localidade solicitados estão disponíveis no banco."
             )
+        elif results_df.shape == (1, 1):
+            answer = resposta_de_um_valor(results_df.columns[0], results_df.iat[0, 0])
         else:
-            results_str = results_df.to_string(index=False)
-            formatted_response = self.format_response(user_question, results_str)
+            results_str = results_df.head(30).to_string(index=False)
+            answer = self.format_response(user_question, results_str)
 
         logger.info("Pergunta respondida com sucesso")
-        return (user_question, sql_query, formatted_response)
+        return {"question": user_question, "sql": sql_query, "answer": answer, "df": results_df}
 
     def close(self):
         """Fecha recursos."""

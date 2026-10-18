@@ -55,9 +55,11 @@ export type Provider = 'groq' | 'openai' | 'gemini' | 'anthropic'
 
 export const MODELS_BY_PROVIDER: Record<Provider, { value: string; label: string }[]> = {
   groq: [
-    { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (recomendado)' },
-    { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (mais rapido)' },
-    { value: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B' },
+    // Llama 3.3 70B, Llama 3.1 8B e Mixtral saíram do catálogo do Groq (conferido em
+    // 18/10/2026 em /openai/v1/models); escolher um deles dava erro 404 em toda busca.
+    { value: 'openai/gpt-oss-20b', label: 'GPT-OSS 20B (recomendado, mais rápido)' },
+    { value: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B (mais preciso)' },
+    { value: 'qwen/qwen3.8-27b', label: 'Qwen 3.8 27B' },
     { value: 'gemma2-9b-it', label: 'Gemma 2 9B' },
   ],
   openai: [

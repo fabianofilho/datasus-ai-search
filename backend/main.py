@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, D
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
+import json
 import logging
 import re
 import shutil
@@ -156,7 +157,10 @@ UFS = {"AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS",
 
 def detect_states_from_question(question: str) -> list:
     """Extrai siglas de estados mencionados na pergunta."""
-    found = re.findall(r'\b([A-Z]{2})\b', question.upper())
+    # Só siglas escritas em maiúsculas: "se", "pa", "to" são palavras comuns em
+    # português e virariam Sergipe, Pará e Tocantins se a pergunta fosse toda
+    # convertida para maiúsculas.
+    found = re.findall(r'\b([A-Z]{2})\b', question)
     matched = [s for s in found if s in UFS]
     return matched if matched else ["*"]
 
@@ -201,8 +205,14 @@ _init_lock = threading.Lock()
 
 
 def _run_init(datasets: List[str], years=None, states=None):
+    """Importa cada dataset num processo separado (ver src/importador.py).
+
+    O datasus-db abrindo o banco para escrita dentro deste processo conflitava com
+    as conexões seguras das buscas ("same database file with a different
+    configuration"). O importador grava numa cópia e troca o arquivo no fim.
+    """
     global _init_state
-    import datasus_db
+    import importador
 
     y = years or ["*"]
     s = states or ["*"]
@@ -215,16 +225,7 @@ def _run_init(datasets: List[str], years=None, states=None):
             with _init_lock:
                 _init_state["current"] = dataset
             logger.info(f"Importando {dataset} anos={y} estados={s}...")
-            if dataset == "sim_do":
-                datasus_db.import_sim_do(db_file=DB_PATH, years=y, states=s)
-            elif dataset == "sih_rd":
-                datasus_db.import_sih_rd(db_file=DB_PATH, years=y, states=s)
-            elif dataset == "sia_pa":
-                datasus_db.import_sia_pa(db_file=DB_PATH, years=y, states=s)
-            elif dataset == "ibge_pop":
-                datasus_db.import_ibge_pop(db_file=DB_PATH, years=y)
-            elif dataset == "auxiliar":
-                datasus_db.import_auxiliar_tables(db_file=DB_PATH)
+            importador.importar(DB_PATH, {dataset: {"years": y, "states": s}})
             with _init_lock:
                 _init_state["completed"].append(dataset)
             logger.info(f"✓ {dataset} importado")
@@ -241,7 +242,7 @@ class SearchRequest(BaseModel):
     question: str
     api_key: Optional[str] = None
     api_base: Optional[str] = None
-    model: str = "llama-3.3-70b-versatile"
+    model: str = "openai/gpt-oss-20b"
 
 
 class InitDBRequest(BaseModel):
@@ -340,19 +341,19 @@ async def search(req: SearchRequest):
             model=req.model,
             db_path=DB_PATH,
         ) as engine:
-            question, sql, answer = engine.answer_question(req.question)
+            # Só as tabelas dos datasets que a pergunta pede vão para o prompt, e o
+            # resultado volta junto: antes o SQL rodava de novo aqui só para a tabela.
+            tabelas = [t for d in needed for t in DATASET_TABLES.get(d, [d])]
+            r = engine.responder(req.question, tabelas=tabelas)
+            question, sql, answer, df = r["question"], r["sql"], r["answer"], r["df"]
 
             data = []
             columns = []
             row_count = 0
-            try:
-                with QueryExecutor(DB_PATH) as executor:
-                    df = executor.execute(sql)
-                    data = df.head(100).to_dict(orient="records")
-                    columns = list(df.columns)
-                    row_count = len(df)
-            except Exception as e:
-                logger.warning(f"Erro ao obter dados brutos: {e}")
+            if df is not None:
+                data = json.loads(df.head(100).to_json(orient="records", date_format="iso"))
+                columns = list(df.columns)
+                row_count = len(df)
 
             return {
                 "question": question,
