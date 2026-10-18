@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Activity, LayoutGrid, Clock, BookOpen, Code2 } from 'lucide-react'
+import Link from 'next/link'
+import { Activity, LayoutGrid, Clock, BookOpen, Code2, Plug } from 'lucide-react'
 import ConfigModal from './ConfigModal'
 import SchemaModal from './SchemaModal'
 import type { AppConfig } from '@/types'
@@ -62,6 +63,14 @@ export default function Header({ config, onConfigChange }: HeaderProps) {
               <Code2 className="w-4 h-4" />
               <span>API</span>
             </button>
+
+            <Link
+              href="/mcp"
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-lg transition-colors"
+            >
+              <Plug className="w-4 h-4" />
+              <span>MCP</span>
+            </Link>
 
             <div className="w-px h-5 bg-slate-200 mx-2" />
 

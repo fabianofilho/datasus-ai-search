@@ -145,6 +145,12 @@ A interface Streamlit oferece:
 
 ---
 
+## 🔌 MCP do omnisus
+
+A página `/mcp` do site explica como usar no Claude o servidor MCP do [omnisus](https://github.com/raphaelfh/omnisus): um lake DuckDB somente leitura com dados abertos do DATASUS e do IBGE, com ferramentas para listar bases, descrever colunas, achar códigos CID-10 e de município, rodar um SELECT e citar a fonte. Quem raciocina é o Claude de quem conecta; o site só mostra o endereço.
+
+O endereço vem de `NEXT_PUBLIC_OMNISUS_MCP_URL`, configurada no ambiente do Vercel e nunca no código. Sem a variável, a página diz que o endereço ainda não está configurado.
+
 ## 🧪 Testes
 
 ```bash
